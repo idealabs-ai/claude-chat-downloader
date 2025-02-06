@@ -1,0 +1,28 @@
+{
+    "manifest_version": 3,
+    "name": "Claude Chat Downloader",
+    "version": "1.0",
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "content_scripts": [{
+        "matches": ["https://claude.ai/*"],
+        "js": ["content.js"]
+    }],
+    "web_accessible_resources": [{
+        "resources": ["injected.js"],
+        "matches": ["https://claude.ai/*"]
+    }],
+    "permissions": [
+        "activeTab",
+        "scripting",
+        "downloads"
+    ],
+    "host_permissions": ["https://claude.ai/*"],
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; script-src-elem 'self' 'unsafe-inline'"
+    }
+}
