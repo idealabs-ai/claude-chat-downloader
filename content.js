@@ -56,6 +56,34 @@ window.addEventListener('message', async event => {
         if (messages && messages.length > 0) {
             console.log(`Processing ${messages.length} messages for download...`);
             
+            const zip = new JSZip();
+            
+            // Add chat JSON
+            zip.file('chat.json', JSON.stringify(messages, null, 2));
+
+            // Initialize formatted versions with headers
+            ['html', 'markdown'].forEach(format => {
+                zip.file(`chat.${format}`, formatters[format].start());
+            });
+
+            // Process all messages
+            let htmlContent = formatters.html.start();
+            let mdContent = formatters.markdown.start();
+            
+            // Process each message and accumulate content
+            for (const msg of messages) {
+                await processMessageContent(msg, zip, messages);
+                htmlContent += formatters.html.message(msg);
+                mdContent += formatters.markdown.message(msg);
+            }
+
+            // Add endings and save complete files
+            htmlContent += formatters.html.end();
+            mdContent += formatters.markdown.end();
+            
+            zip.file('chat.html', htmlContent);
+            zip.file('chat.md', mdContent);
+
             // Track unique files
             const uniqueFiles = new Map();
             
@@ -91,17 +119,6 @@ window.addEventListener('message', async event => {
 
             console.log(`Found ${uniqueFiles.size} unique files to download`);
 
-            // Create ZIP bundle
-            const zip = new JSZip();
-            
-            // Add chat JSON
-            zip.file('chat.json', JSON.stringify(messages, null, 2));
-            
-            // Process all messages
-            for (const msg of messages) {
-                await processMessageContent(msg, zip);
-            }
-            
             // Create folders
             const filesFolder = zip.folder('files');
             const imagesFolder = filesFolder.folder('images');
@@ -199,8 +216,92 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
 });
 
+// Add these content formatters at the top
+const formatters = {
+    html: {
+        start: () => `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        .message { margin: 1em 0; padding: 1em; border: 1px solid #ddd; }
+        .human { background: #f5f5f5; }
+        .assistant { background: #f0f7ff; }
+        img { max-width: 100%; }
+        pre { background: #f0f0f0; padding: 1em; overflow-x: auto; }
+    </style>
+</head>
+<body>`,
+        end: () => `</body></html>`,
+        message: (msg, fileRefs) => {
+            const content = msg.content.map(item => {
+                if (item.type === 'text') {
+                    return `<p>${item.text.replace(/\n/g, '<br>')}</p>`;
+                }
+                if (item.type === 'tool_use' && item.name === 'artifacts') {
+                    const filename = `files/artifacts/${item.input.title}${item.input.language ? '.' + item.input.language : ''}`;
+                    return `<pre><code class="language-${item.input.language || 'text'}">${item.input.content}</code></pre>
+                            <p><a href="${filename}">Download ${item.input.title}</a></p>`;
+                }
+                return '';
+            }).join('\n');
+
+            // Handle attachments and files
+            const files = [
+                ...(msg.attachments || []).map(att => 
+                    `<p>Attachment: <a href="files/attachments/${att.file_name}">${att.file_name}</a></p>`
+                ),
+                ...(msg.files || []).map(file => {
+                    if (file.file_kind === 'image') {
+                        return `<p><img src="files/images/${file.file_name}" alt="${file.file_name}"></p>`;
+                    }
+                    return `<p>File: <a href="files/other/${file.file_name}">${file.file_name}</a></p>`;
+                })
+            ].join('\n');
+
+            return `<div class="message ${msg.sender}">
+                ${content}
+                ${files}
+            </div>`;
+        }
+    },
+    markdown: {
+        start: () => `# Claude Chat Export\n\n`,
+        end: () => ``,
+        message: (msg, fileRefs) => {
+            const sender = msg.sender === 'human' ? '**Human:**' : '**Assistant:**';
+            
+            const content = msg.content.map(item => {
+                if (item.type === 'text') {
+                    return item.text;
+                }
+                if (item.type === 'tool_use' && item.name === 'artifacts') {
+                    const filename = `files/artifacts/${item.input.title}${item.input.language ? '.' + item.input.language : ''}`;
+                    return `\`\`\`${item.input.language || ''}\n${item.input.content}\n\`\`\`\n[Download ${item.input.title}](${filename})`;
+                }
+                return '';
+            }).join('\n\n');
+
+            // Handle attachments and files
+            const files = [
+                ...(msg.attachments || []).map(att => 
+                    `[Attachment: ${att.file_name}](files/attachments/${att.file_name})`
+                ),
+                ...(msg.files || []).map(file => {
+                    if (file.file_kind === 'image') {
+                        return `![${file.file_name}](files/images/${file.file_name})`;
+                    }
+                    return `[File: ${file.file_name}](files/other/${file.file_name})`;
+                })
+            ].join('\n');
+
+            return `${sender}\n\n${content}\n\n${files}\n\n---\n`;
+        }
+    }
+};
+
 // Process message content
-async function processMessageContent(msg, zip) {
+async function processMessageContent(msg, zip, messages) {
     // Handle embedded content (attachments)
     if (msg.attachments?.length > 0) {
         for (const att of msg.attachments) {
