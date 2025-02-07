@@ -5,18 +5,111 @@ console.log('Claude Chat Extractor loading...');
 const contentHandlers = {
     // Embedded content (attachments & artifacts)
     embedded: {
+        // Image types
+        'image/svg+xml': (content) => ({
+            extension: '.svg',
+            content: content,
+            contentType: 'image/svg+xml'
+        }),
+        'image/png': (content) => ({
+            extension: '.png',
+            content: content,
+            contentType: 'image/png'
+        }),
+        'image/jpeg': (content) => ({
+            extension: '.jpg',
+            content: content,
+            contentType: 'image/jpeg'
+        }),
+        
+        // Code and text types
         'application/json': (content) => ({
             extension: '.json',
-            content: JSON.stringify(content, null, 2)
+            content: JSON.stringify(content, null, 2),
+            contentType: 'application/json'
         }),
         'application/vnd.ant.code': (content, meta) => ({
             extension: `.${meta.language || 'txt'}`,
-            content: content
+            content: content,
+            contentType: 'text/plain'
         }),
-        'default': (content) => ({
+        'text/plain': (content) => ({
             extension: '.txt',
-            content: typeof content === 'string' ? content : JSON.stringify(content)
-        })
+            content: content,
+            contentType: 'text/plain'
+        }),
+        'text/html': (content) => ({
+            extension: '.html',
+            content: content,
+            contentType: 'text/html'
+        }),
+        'text/css': (content) => ({
+            extension: '.css',
+            content: content,
+            contentType: 'text/css'
+        }),
+        'text/javascript': (content) => ({
+            extension: '.js',
+            content: content,
+            contentType: 'text/javascript'
+        }),
+
+        // Default handler with MIME type detection
+        'default': (content, meta) => {
+            // Try to detect content type if provided
+            if (meta && meta.type) {
+                const mimeHandler = contentHandlers.embedded[meta.type];
+                if (mimeHandler) {
+                    return mimeHandler(content, meta);
+                }
+
+                // If no specific handler but we have a MIME type, use its standard extension
+                const mimeToExt = {
+                    'image/': '.img',
+                    'text/': '.txt',
+                    'application/': '.bin',
+                    'audio/': '.audio',
+                    'video/': '.video'
+                };
+
+                for (const [mimePrefix, defaultExt] of Object.entries(mimeToExt)) {
+                    if (meta.type.startsWith(mimePrefix)) {
+                        return {
+                            extension: defaultExt,
+                            content: content,
+                            contentType: meta.type
+                        };
+                    }
+                }
+            }
+
+            // Fallback to examining content
+            if (typeof content === 'string') {
+                // Check if it looks like SVG
+                if (content.trim().startsWith('<svg')) {
+                    return {
+                        extension: '.svg',
+                        content: content,
+                        contentType: 'image/svg+xml'
+                    };
+                }
+                // Check if it looks like HTML
+                if (content.trim().startsWith('<!DOCTYPE html') || content.trim().startsWith('<html')) {
+                    return {
+                        extension: '.html',
+                        content: content,
+                        contentType: 'text/html'
+                    };
+                }
+            }
+
+            // Ultimate fallback
+            return {
+                extension: '.txt',
+                content: typeof content === 'string' ? content : JSON.stringify(content),
+                contentType: 'text/plain'
+            };
+        }
     },
 
     // File references
@@ -55,32 +148,27 @@ window.addEventListener('message', async event => {
         const messages = event.data.messages;
         if (messages && messages.length > 0) {
             console.log(`Processing ${messages.length} messages for download...`);
-            
             const zip = new JSZip();
             
             // Add chat JSON
             zip.file('chat.json', JSON.stringify(messages, null, 2));
 
-            // Initialize formatted versions with headers
-            ['html', 'markdown'].forEach(format => {
-                zip.file(`chat.${format}`, formatters[format].start());
-            });
-
-            // Process all messages
+            // Initialize formatted content
             let htmlContent = formatters.html.start();
             let mdContent = formatters.markdown.start();
             
-            // Process each message and accumulate content
+            // Process each message
             for (const msg of messages) {
                 await processMessageContent(msg, zip, messages);
                 htmlContent += formatters.html.message(msg);
                 mdContent += formatters.markdown.message(msg);
             }
 
-            // Add endings and save complete files
+            // Add endings
             htmlContent += formatters.html.end();
             mdContent += formatters.markdown.end();
             
+            // Save HTML and MD
             zip.file('chat.html', htmlContent);
             zip.file('chat.md', mdContent);
 
@@ -98,20 +186,7 @@ window.addEventListener('message', async event => {
                         uniqueFiles.set(fileName, {
                             url: 'https://claude.ai' + file.preview_url,
                             name: fileName,
-                            // Use file_kind to determine type
                             type: file.file_kind === 'image' ? 'image/png' : 'application/octet-stream'
-                        });
-                    }
-                });
-
-                // Handle attachments separately (non-image files)
-                (msg.attachments || []).forEach(att => {
-                    const fileName = att.file_name || att.name;
-                    if (!uniqueFiles.has(fileName) && att.preview_url) {
-                        uniqueFiles.set(fileName, {
-                            url: 'https://claude.ai' + att.preview_url,
-                            name: fileName,
-                            type: 'application/octet-stream'
                         });
                     }
                 });
@@ -124,59 +199,72 @@ window.addEventListener('message', async event => {
             const imagesFolder = filesFolder.folder('images');
             const attachmentsFolder = filesFolder.folder('attachments');
 
-            // Download all files first
-            const downloadPromises = Array.from(uniqueFiles.values()).map(async file => {
-                try {
-                    console.log(`Downloading ${file.name} from ${file.url}`);
-                    const response = await fetch(file.url);
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    const blob = await response.blob();
+            // Create download promises array
+            const downloadPromises = [
+                // Existing file downloads
+                ...Array.from(uniqueFiles.values()).map(async file => {
+                    try {
+                        console.log(`Downloading ${file.name} from ${file.url}`);
+                        const response = await fetch(file.url);
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const blob = await response.blob();
+                        
+                        const folder = file.type.startsWith('image/') ? imagesFolder : attachmentsFolder;
+                        folder.file(file.name, blob);
+                        
+                        chrome.runtime.sendMessage({
+                            type: 'status',
+                            text: `Downloaded ${file.name}...`,
+                            state: 'progress'
+                        });
+
+                        return true;
+                    } catch (error) {
+                        console.error(`Failed to download ${file.name}:`, error);
+                        return false;
+                    }
+                })
+            ];
+
+            // Get chat name from page title or URL with timestamp
+            let chatName = document.title.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+            if (chatName === 'claude' || chatName === '') {
+                chatName = 'claude-chat';
+            }
+            // Add timestamp to all downloads
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5); // Format: YYYY-MM-DDTHHMM
+            const zipFileName = `${chatName}-${timestamp}.zip`;
+
+            // Wait for ALL operations to complete
+            Promise.all(downloadPromises)
+                .then(async results => {
+                    console.log('All downloads completed, creating ZIP...');
+                    const blob = await zip.generateAsync({type: 'blob'});
+                    const url = URL.createObjectURL(blob);
                     
-                    // Determine folder based on file type
-                    const folder = file.type.startsWith('image/') ? imagesFolder : attachmentsFolder;
-                    folder.file(file.name, blob);
+                    chrome.runtime.sendMessage({
+                        type: 'download',
+                        options: {
+                            url: url,
+                            filename: zipFileName,
+                            saveAs: true
+                        }
+                    });
                     
                     chrome.runtime.sendMessage({
                         type: 'status',
-                        text: `Downloaded ${file.name}...`,
-                        state: 'progress'
+                        text: `Download complete! (${results.filter(Boolean).length} files included)`,
+                        state: 'success'
                     });
-
-                    return true;
-                } catch (error) {
-                    console.error(`Failed to download ${file.name}:`, error);
-                    return false;
-                }
-            });
-
-            // Wait for all downloads to complete before creating ZIP
-            Promise.all(downloadPromises).then(async results => {
-                console.log('All downloads completed, generating ZIP...');
-                const blob = await zip.generateAsync({type: 'blob'});
-                const url = URL.createObjectURL(blob);
-                
-                chrome.runtime.sendMessage({
-                    type: 'download',
-                    options: {
-                        url: url,
-                        filename: `claude-chat-${Date.now()}.zip`,
-                        saveAs: true
-                    }
+                })
+                .catch(error => {
+                    console.error('Error in download process:', error);
+                    chrome.runtime.sendMessage({
+                        type: 'status',
+                        text: 'Error creating download package',
+                        state: 'error'
+                    });
                 });
-                
-                chrome.runtime.sendMessage({
-                    type: 'status',
-                    text: `Download complete! (${results.filter(Boolean).length} files included)`,
-                    state: 'success'
-                });
-            }).catch(error => {
-                console.error('Error creating ZIP:', error);
-                chrome.runtime.sendMessage({
-                    type: 'status',
-                    text: 'Error creating ZIP file',
-                    state: 'error'
-                });
-            });
         } else {
             console.log('No messages found');
             chrome.runtime.sendMessage({
@@ -212,8 +300,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'extract') {
         console.log('Starting extraction...');
         injectFindMessages();
+        sendResponse({status: 'started'});
+        return false; // Don't keep the message channel open
     }
-    return true;
 });
 
 // Add these content formatters at the top
@@ -224,14 +313,73 @@ const formatters = {
 <head>
     <meta charset="UTF-8">
     <style>
-        .message { margin: 1em 0; padding: 1em; border: 1px solid #ddd; }
-        .human { background: #f5f5f5; }
-        .assistant { background: #f0f7ff; }
-        img { max-width: 100%; }
-        pre { background: #f0f0f0; padding: 1em; overflow-x: auto; }
+        @page { 
+            margin: 15mm;
+            size: A4;
+        }
+        body { 
+            font-family: Arial, sans-serif; 
+            line-height: 1.6;
+            max-width: 210mm;  // A4 width
+            margin: 0 auto;
+            padding: 20mm;
+            background: white;
+        }
+        .message { 
+            margin: 1.5em 0; 
+            padding: 1.5em; 
+            border: 1px solid #ddd; 
+            border-radius: 8px;
+            page-break-inside: avoid;
+            background-color: white;  // Ensure background is rendered
+        }
+        .human { 
+            background: #f5f5f5 !important; 
+            border-left: 4px solid #666;
+        }
+        .assistant { 
+            background: #f0f7ff !important; 
+            border-left: 4px solid #0066cc;
+        }
+        img { 
+            max-width: 100%; 
+            height: auto;
+            margin: 1em 0;
+        }
+        pre { 
+            background: #f0f0f0 !important; 
+            padding: 1em; 
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow: hidden;  // Prevent scroll in PDF
+        }
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        @media print {
+            body { 
+                width: 210mm;
+                height: 297mm;
+                margin: 0;
+                padding: 15mm;
+            }
+            .message { 
+                break-inside: avoid;
+            }
+        }
     </style>
 </head>
-<body>`,
+<body>
+<h1>Claude Chat Export</h1>`,
         end: () => `</body></html>`,
         message: (msg, fileRefs) => {
             const content = msg.content.map(item => {
@@ -297,19 +445,111 @@ const formatters = {
 
             return `${sender}\n\n${content}\n\n${files}\n\n---\n`;
         }
+    },
+    pdf: {
+        start: () => `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { margin: 1cm; }
+        body { font-family: Arial, sans-serif; line-height: 1.6; }
+        .message { margin: 1em 0; padding: 1em; border: 1px solid #ddd; page-break-inside: avoid; }
+        .human { background: #f5f5f5; }
+        .assistant { background: #f0f7ff; }
+        img { max-width: 100%; }
+        pre { background: #f0f0f0; padding: 1em; overflow-x: auto; white-space: pre-wrap; }
+        @media print {
+            .message { break-inside: avoid; }
+            pre { white-space: pre-wrap; }
+        }
+    </style>
+</head>
+<body>`,
+        end: () => `</body></html>`,
+        message: (msg) => {
+            const content = msg.content.map(item => {
+                if (item.type === 'text') {
+                    return `<p>${item.text.replace(/\n/g, '<br>')}</p>`;
+                }
+                if (item.type === 'tool_use' && item.name === 'artifacts') {
+                    const filename = `files/artifacts/${item.input.title}${item.input.language ? '.' + item.input.language : ''}`;
+                    return `<pre><code class="language-${item.input.language || 'text'}">${item.input.content}</code></pre>
+                            <p><a href="${filename}">Download ${item.input.title}</a></p>`;
+                }
+                return '';
+            }).join('\n');
+
+            // Handle attachments and files
+            const files = [
+                ...(msg.attachments || []).map(att => 
+                    `<p>Attachment: <a href="files/attachments/${att.file_name}">${att.file_name}</a></p>`
+                ),
+                ...(msg.files || []).map(file => {
+                    if (file.file_kind === 'image') {
+                        return `<p><img src="files/images/${file.file_name}" alt="${file.file_name}"></p>`;
+                    }
+                    return `<p>File: <a href="files/other/${file.file_name}">${file.file_name}</a></p>`;
+                })
+            ].join('\n');
+
+            return `<div class="message ${msg.sender}">
+                ${content}
+                ${files}
+            </div>`;
+        }
     }
 };
+
+// At the top level, add a state object to track artifacts
+let artifactVersions = new Map();
 
 // Process message content
 async function processMessageContent(msg, zip, messages) {
     // Handle embedded content (attachments)
     if (msg.attachments?.length > 0) {
         for (const att of msg.attachments) {
-            if (att.file_type && att.extracted_content) {  // Only process if we have both type and content
-                const handler = contentHandlers.embedded[att.file_type] || 
+            console.log('Processing attachment:', {
+                id: att.id,
+                name: att.file_name,
+                type: att.file_type || 'unknown',
+                hasContent: !!att.extracted_content,
+                hasPreview: !!att.preview_url
+            });
+
+            // Handle extracted content
+            if (att.extracted_content) {
+                const handler = (att.file_type && contentHandlers.embedded[att.file_type]) || 
                               contentHandlers.embedded.default;
-                const result = handler(att.extracted_content);
-                zip.file(`files/attachments/${att.file_name}`, result.content);
+                const result = handler(att.extracted_content, {
+                    type: att.file_type,  // Pass the type information
+                    language: att.language
+                });
+                
+                const fileExt = getExtFromName(att.file_name) || result.extension;
+                const fileName = `${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${fileExt}`;
+                
+                console.log('Saving attachment content:', {
+                    name: fileName,
+                    type: result.contentType || 'unknown'
+                });
+                zip.file(`files/attachments/${fileName}`, result.content);
+            }
+            
+            // Handle preview URL if available
+            if (att.preview_url) {
+                try {
+                    console.log(`Downloading attachment: ${att.file_name} from ${att.preview_url}`);
+                    const response = await fetch('https://claude.ai' + att.preview_url);
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const blob = await response.blob();
+                    
+                    const fileName = att.file_name;
+                    console.log('Saving attachment file:', fileName);
+                    zip.file(`files/attachments/${fileName}`, blob);
+                } catch (error) {
+                    console.error(`Failed to download attachment ${att.file_name}:`, error);
+                }
             }
         }
     }
@@ -318,19 +558,81 @@ async function processMessageContent(msg, zip, messages) {
     for (const item of msg.content || []) {
         if (item.type === 'tool_use' && 
             item.name === 'artifacts' && 
-            item.input?.type && 
-            item.input?.content) {  // Only process valid artifacts
-                
-            const handler = contentHandlers.embedded[item.input.type] || 
-                          contentHandlers.embedded.default;
-            const result = handler(item.input.content, {
-                language: item.input.language
-            });
+            item.input?.id) {
             
-            // Only create file if we have a title
-            if (item.input.title) {
-                zip.file(`files/artifacts/${item.input.title}${result.extension}`, 
-                         result.content);
+            console.log('Processing artifact:', {
+                id: item.input.id,
+                command: item.input.command,
+                type: item.input.type,
+                hasOldStr: !!item.input.old_str,
+                hasNewStr: !!item.input.new_str,
+                stop_time: item.stop_timestamp
+            });
+
+            // For create command, we need type and content
+            if (item.input.command === 'create' && item.input.type && item.input.content) {
+                const handler = contentHandlers.embedded[item.input.type] || 
+                              contentHandlers.embedded.default;
+                const result = handler(item.input.content, {
+                    language: item.input.language
+                });
+
+                const timestamp = new Date(item.stop_timestamp).getTime();
+                const fileName = `${item.input.id}_${timestamp}${result.extension}`;
+                const artifactPath = `files/artifacts/${fileName}`;
+
+                console.log('Creating new artifact:', fileName);
+                zip.file(artifactPath, result.content);
+                artifactVersions.set(item.input.id, {
+                    path: artifactPath,
+                    timestamp,
+                    content: result.content,
+                    extension: result.extension,
+                    language: item.input.language
+                });
+            }
+            // For update command, we need old_str and new_str
+            else if (item.input.command === 'update' && 
+                    item.input.old_str && 
+                    item.input.new_str) {
+                
+                const lastVersion = artifactVersions.get(item.input.id);
+                if (lastVersion) {
+                    console.log('Updating artifact:', {
+                        id: item.input.id,
+                        from: lastVersion.path
+                    });
+
+                    const timestamp = new Date(item.stop_timestamp).getTime();
+                    const fileName = `${item.input.id}_${timestamp}${lastVersion.extension}`;
+                    const artifactPath = `files/artifacts/${fileName}`;
+
+                    try {
+                        const existingContent = await zip.file(lastVersion.path).async('string');
+                        const updatedContent = existingContent.replace(
+                            new RegExp(escapeRegExp(item.input.old_str), 'g'),
+                            item.input.new_str
+                        );
+                        
+                        console.log('Content updated:', {
+                            before: existingContent.substring(0, 100),
+                            after: updatedContent.substring(0, 100)
+                        });
+
+                        zip.file(artifactPath, updatedContent);
+                        artifactVersions.set(item.input.id, {
+                            path: artifactPath,
+                            timestamp,
+                            content: updatedContent,
+                            extension: lastVersion.extension,
+                            language: lastVersion.language
+                        });
+                    } catch (error) {
+                        console.error('Failed to update artifact:', error);
+                    }
+                } else {
+                    console.warn('No previous version found for update:', item.input.id);
+                }
             }
         }
     }
@@ -338,29 +640,45 @@ async function processMessageContent(msg, zip, messages) {
     // Handle files
     const files = [...(msg.files || []), ...(msg.files_v2 || [])];
     for (const file of files) {
-        if (file.file_kind && file.preview_url) {  // Only process valid files
-            const handler = contentHandlers.files[file.file_kind] || 
-                           contentHandlers.files.default;
-            const result = handler(file);
-            if (result.needsDownload) {
-                try {
-                    const response = await fetch('https://claude.ai' + result.url);
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    const blob = await response.blob();
-                    const folder = file.file_kind === 'image' ? 'images' : 'other';
-                    zip.file(`files/${folder}/${file.file_name}`, blob);
-                    
-                    chrome.runtime.sendMessage({
-                        type: 'status',
-                        text: `Processed ${file.file_name}`,
-                        state: 'progress'
-                    });
-                } catch (error) {
-                    console.error(`Failed to process ${file.file_name}:`, error);
-                }
+        // Get the best available URL for the file
+        const fileUrl = file.document_asset?.url ||  // For PDFs and documents
+                       file.preview_url ||           // For images and other previews
+                       file.thumbnail_url;           // Fallback to thumbnail if nothing else
+
+        if (fileUrl) {
+            try {
+                console.log('Processing file:', {
+                    name: file.file_name,
+                    kind: file.file_kind || 'unknown',
+                    url: fileUrl
+                });
+
+                const response = await fetch('https://claude.ai' + fileUrl);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const blob = await response.blob();
+
+                // Put images in images folder, everything else in other
+                const folder = file.file_kind === 'image' ? 'images' : 'other';
+                zip.file(`files/${folder}/${file.file_name}`, blob);
+                
+                console.log(`Saved file: ${file.file_name} to ${folder}/`);
+                chrome.runtime.sendMessage({
+                    type: 'status',
+                    text: `Processed ${file.file_name}`,
+                    state: 'progress'
+                });
+            } catch (error) {
+                console.error(`Failed to process ${file.file_name}:`, error);
             }
+        } else {
+            console.warn(`No URL found for file: ${file.file_name}`);
         }
     }
+}
+
+// Add helper function at the top
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
 console.log('Chat extractor ready - click the extension icon to start extraction');
