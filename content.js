@@ -222,11 +222,15 @@ if (!window.location.hostname.includes('claude.ai')) {
                 Promise.all(downloadPromises)
                     .then(async results => {
                         console.log('All downloads completed, creating ZIP...');
+                        sendStatusMessage('Creating ZIP file...', 'progress');
                         const blob = await zip.generateAsync({type: 'blob'});
                         const url = URL.createObjectURL(blob);
                         
                         // Send to background script for download and wait for response
                         return new Promise((resolve, reject) => {
+                            // Show success message BEFORE sending to background
+                            sendStatusMessage(`Download ready! (${results.filter(Boolean).length} files included)`, 'success');
+                            
                             chrome.runtime.sendMessage({
                                 type: 'download',
                                 options: {
@@ -244,7 +248,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                         });
                     })
                     .then(() => {
-                        sendStatusMessage(`Download complete!`, 'success');
+                        console.log('Download completed successfully');
                     })
                     .catch(error => {
                         console.error('Error in download process:', error);
