@@ -2,21 +2,67 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
+        :root {
+            /* Use single color scheme regardless of system theme */
+            --primary: #bb6101;
+            --primary-dark: #793f00;
+            --primary-light: #ffb15e;
+            --bg: #1a1a1a;
+            --bg-gradient: linear-gradient(160deg, #1a1a1a 0%, #262626 100%);
+            --text: #cad8d6;
+            --border: #404040;
+            --link: var(--primary-light); /* Add link color variable */
+        }
+
         body {
             width: 320px;
             padding: 0;
             margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f8f9fa;
+            padding-bottom: 60px; /* Reduced from 100px to match credit height */
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text);
         }
 
         .header {
-            background: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+            background: linear-gradient(45deg, 
+                var(--primary-light) 0%, 
+                var(--primary) 50%,
+                var(--primary-dark) 100%);
             color: white;
             padding: 15px 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255,255,255,0.1) 50%, 
+                transparent 100%);
+            transform: skewX(-20deg) translateX(-100%);
+            animation: shine 1s;
+        }
+
+        @keyframes shine {
+            100% { transform: skewX(-20deg) translateX(200%); }
+        }
+
+        .header img {
+            width: 64px;
+            height: 64px;
         }
 
         .header h1 {
@@ -26,166 +72,320 @@
         }
 
         .content {
-            padding: 20px;
+            padding: 20px 20px 0;
+            min-height: 90px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+
+        .download-container {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: center;
+            min-height: 60px;
+            position: relative;
+        }
+
+        .default-message {
+            color: var(--text);
+            opacity: 0.7;
+            font-size: 13px;
+            text-align: center;
+            padding: 10px;
+            font-weight: 400;
         }
 
         #extract {
             width: 100%;
-            padding: 12px;
-            background: #4a90e2;
+            height: 44px;
+            padding: 0 12px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
             color: white;
             border: none;
             border-radius: 6px;
             font-size: 14px;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        #extract:hover {
-            background: #357abd;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        }
-
-        #extract:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        #status {
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 6px;
-            font-size: 13px;
-            transition: all 0.3s ease;
-        }
-
-        .success { 
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .error { 
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .progress { 
-            background: #cce5ff;
-            color: #004085;
-            border: 1px solid #b8daff;
-        }
-
-        .not-claude {
-            text-align: center;
-            color: #721c24;
-            background: #f8d7da;
-            padding: 15px;
-            border-radius: 6px;
-            margin: 10px 0;
-            border: 1px solid #f5c6cb;
-        }
-
-        .not-claude a {
-            color: #0066cc;
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .not-claude a:hover {
-            text-decoration: underline;
-        }
-
-        .credit {
-            margin-top: 20px;
-            padding: 15px 20px;
-            font-size: 12px;
-            color: #6c757d;
-            text-align: center;
-            border-top: 1px solid #dee2e6;
-            background: white;
-        }
-
-        .credit a {
-            color: #4a90e2;
-            text-decoration: none;
-            font-weight: 500;
-            transition: color 0.2s ease;
-        }
-
-        .credit a:hover {
-            color: #357abd;
-            text-decoration: underline;
-        }
-
-        /* Loading animation for button */
-        @keyframes loading {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: background-color 0.3s ease, transform 0.1s ease;
         }
 
         .loading-icon {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: loading 1s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
+            opacity: 0;
+            width: 20px;
+            height: 20px;
+            transition: opacity 0.3s ease;
+        }
+
+        #extract.processing .loading-icon {
+            opacity: 1;
+        }
+
+        #extract.processing .button-text {
+            opacity: 0.7;
         }
 
         .description {
             padding: 15px;
-            background: white;
-            border-bottom: 1px solid #dee2e6;
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
             font-size: 13px;
             line-height: 1.5;
-            color: #495057;
         }
 
         .features {
-            margin: 10px 0 0 20px;
+            list-style: none;
             padding: 0;
+            margin: 10px 0;
+        }
+
+        .features li {
+            margin: 8px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .features .icon {
+            flex-shrink: 0;
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
         }
 
         .format-tag {
             display: inline-block;
             padding: 2px 6px;
             border-radius: 3px;
-            background: #e9ecef;
-            color: #495057;
+            background: #2d2d2d;
+            color: var(--text);
             font-size: 12px;
             font-family: monospace;
-            margin: 0 2px;
+        }
+
+        #status {
+            width: 100%;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-weight: 400;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            white-space: nowrap;
+           
+            margin: 0 0 20px 0;
+        }
+
+        #status span {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+        }
+
+        .success { 
+            background: rgba(46, 204, 113, 0.15);
+            color: #2ecc71;
+            border: 1px solid rgba(46, 204, 113, 0.3);
+        }
+        
+        .error { 
+            background: rgba(231, 76, 60, 0.15);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+        
+        .progress { 
+            background: rgba(52, 152, 219, 0.15);
+            color: #3498db;
+            border: 1px solid rgba(52, 152, 219, 0.3);
+        }
+
+        .credit {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px 12px;
+            background: linear-gradient(to bottom, 
+                rgba(26,26,26,0) 0%,
+                rgba(26,26,26,0.8) 20%,
+                rgba(26,26,26,1) 50%);
+            height: 70px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding-bottom: 8px; /* Reduced from 16px */
+        }
+
+        .idealabs-link {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0;
+            padding: 4px 8px;
+            transition: all 0.2s ease;
+            color: var(--primary-light);
+            font-size: 12px;
+            margin-top: auto;
+        }
+
+        .idealabs-link span {
+            margin-top: -12px;
+        }
+
+        .idea-icon {
+            width: 64px;
+            height: 64px;
+            display: block;
+        }
+
+        /* Style for the feedback link */
+        .feedback-link {
+            color: #666;
+            font-size: 11px;
+            text-decoration: none;
+            opacity: 0.7;
+            transition: all 0.2s ease;
+            padding: 4px 8px;
+            align-self: flex-end; /* Align to bottom */
+        }
+
+        .feedback-link:hover {
+            opacity: 1;
+            color: var(--primary-light);
+            text-decoration: none;
+        }
+
+        /* Hide/show transitions */
+        #status, #extract {
+            transition: all 0.3s ease;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        #status.hidden, #extract.hidden {
+            opacity: 0;
+            transform: translateY(-5px);
+            pointer-events: none;
+        }
+
+        /* Add default status style */
+        .default {
+            background: rgba(255,255,255,0.05);
+            color: var(--text);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Add general link styling */
+        a {
+            color: #2ecc71;
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        a:hover {
+            color: var(--primary);
+            text-decoration: underline;
+        }
+
+        /* Add style for the notice */
+        .notice {
+            margin-top: 12px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #888;
+            background: rgba(255,255,255,0.03);
+            border-radius: 4px;
+            border-left: 2px solid var(--primary);
+            line-height: 1.4;
+        }
+
+        .notice a {
+            color: var(--primary-light);
+        }
+
+        .notice a:hover {
+            color: var(--primary);
+        }
+
+        /* Button active state to create a subtle, tactile feedback */
+        #extract:active {
+            transform: scale(0.98);
         }
     </style>
 </head>
 <body>
     <div class="header">
+        <img src="icons/chat512.png" alt="Claude Chat Downloader">
         <h1>Claude Chat Downloader</h1>
     </div>
     <div class="description">
         Download your entire chat history including:
         <ul class="features">
-            <li>Complete conversation in <span class="format-tag">JSON</span> <span class="format-tag">HTML</span> <span class="format-tag">MD</span></li>
-            <li>All attached files and images</li>
-            <li>Code artifacts and their versions</li>
-            <li>Generated content and outputs</li>
+            <li>
+                <div class="icon"><i class="fas fa-archive"></i></div>
+                <div>Complete conversation in 
+                    <span class="format-tag">JSON</span>
+                    <span class="format-tag">HTML</span>
+                    <span class="format-tag">MD</span>
+                </div>
+            </li>
+            <li>
+                <div class="icon"><i class="fas fa-paperclip"></i></div>
+                <div>All attached files and images</div>
+            </li>
+            <li>
+                <div class="icon"><i class="fas fa-code"></i></div>
+                <div>Code artifacts and versions</div>
+            </li>
+            <li>
+                <div class="icon"><i class="fas fa-download"></i></div>
+                <div>Generated content and outputs</div>
+            </li>
         </ul>
+        <div class="notice">
+            If extension stops working due to Claude updates, please <a href="https://github.com/idealabsai/claude-chat-downloader/issues" target="_blank">report an issue</a>
+        </div>
     </div>
     <div class="content">
-        <!-- This will be populated by popup.js -->
+        <div class="download-container">
+            <button id="extract">
+                <span class="loading-icon">
+                    <i class="fas fa-spinner fa-spin"></i>
+                </span>
+                <span class="button-text">Download Chat</span>
+            </button>
+            <div id="status">
+                <span>Ready to download chat history</span>
+            </div>
+        </div>
     </div>
     <div class="credit">
-        Developed by <a href="https://www.idealabs.ai/" target="_blank">Idealabs.ai</a>
+        <a href="https://www.idealabs.ai/" target="_blank" class="idealabs-link">
+            <img src="icons/idea_darkmode.png" alt="Idealabs" class="idea-icon">
+            <span>idealabs.ai</span>
+        </a>
+        <a href="https://github.com/idealabsai/claude-chat-downloader/issues" target="_blank" class="feedback-link">
+            Report issues
+        </a>
     </div>
     <script src="popup.js"></script>
 </body>

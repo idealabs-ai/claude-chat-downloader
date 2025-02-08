@@ -1,34 +1,49 @@
 {
-    "manifest_version": 3,
-    "name": "Claude Chat Downloader",
-    "version": "1.0",
-    "background": {
-        "service_worker": "background.js"
-    },
-    "action": {
-        "default_popup": "popup.html"
-    },
-    "content_scripts": [{
-        "matches": ["https://claude.ai/*"],
-        "js": [
-            "jszip.min.js",
-            "content.js"
-        ]
-    }],
-    "web_accessible_resources": [{
-        "resources": [
-            "injected.js",
-            "jszip.min.js"
-        ],
-        "matches": ["https://claude.ai/*"]
-    }],
-    "permissions": [
-        "activeTab",
-        "scripting",
-        "downloads"
-    ],
-    "host_permissions": ["https://claude.ai/*"],
-    "content_security_policy": {
-        "extension_pages": "script-src 'self'; object-src 'self'; script-src-elem 'self' 'unsafe-inline'"
+  "manifest_version": 3,
+  "name": "Claude Chat Downloader",
+  "version": "1.0.0",
+  "description": "Download chat history, including attachments, uploaded files, and generated artifacts with a click. Save in multiple formats including JSON, HTML, and Markdown.",
+  "icons": {
+    "16": "icons/chat16.png",
+    "48": "icons/chat48.png",
+    "128": "icons/chat128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "scripting"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/chat16.png",
+      "48": "icons/chat48.png",
+      "128": "icons/chat128.png"
     }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": [
+        "libs/jszip.min.js",
+        "content.js"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "injected.js",
+        "libs/jszip.min.js"
+      ],
+      "matches": ["https://claude.ai/*"]
+    }
+  ],
+  "host_permissions": ["https://claude.ai/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
 }

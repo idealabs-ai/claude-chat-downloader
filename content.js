@@ -1,119 +1,56 @@
 // content.js
 if (!window.location.hostname.includes('claude.ai')) {
     console.log('Claude Chat Extractor: This extension only works on claude.ai');
-    // Don't initialize any of the extraction functionality
 } else {
     console.log('Claude Chat Extractor loading...');
+    
+    let port = null;
+    
+    // Only setup connection when needed
+    function setupConnection() {
+        if (!port) {
+            try {
+                port = chrome.runtime.connect({name: 'content'});
+                port.onDisconnect.addListener(() => {
+                    console.log('Port disconnected');
+                    port = null;
+                });
+            } catch (error) {
+                console.error('Connection failed:', error);
+                port = null;
+            }
+        }
+    }
+
+    // Update status message sender to connect only when sending
+    function sendStatusMessage(text, state) {
+        try {
+            chrome.runtime.sendMessage({
+                type: 'status',
+                text: text,
+                state: state
+            });
+        } catch (error) {
+            console.error('Failed to send status:', error);
+        }
+    }
 
     // First add our content handlers at the top
     const contentHandlers = {
         // Embedded content (attachments & artifacts)
         embedded: {
-            // Image types
-            'image/svg+xml': (content) => ({
-                extension: '.svg',
-                content: content,
-                contentType: 'image/svg+xml'
-            }),
-            'image/png': (content) => ({
-                extension: '.png',
-                content: content,
-                contentType: 'image/png'
-            }),
-            'image/jpeg': (content) => ({
-                extension: '.jpg',
-                content: content,
-                contentType: 'image/jpeg'
-            }),
-            
-            // Code and text types
             'application/json': (content) => ({
                 extension: '.json',
-                content: JSON.stringify(content, null, 2),
-                contentType: 'application/json'
+                content: JSON.stringify(content, null, 2)
             }),
             'application/vnd.ant.code': (content, meta) => ({
                 extension: `.${meta.language || 'txt'}`,
-                content: content,
-                contentType: 'text/plain'
+                content: content
             }),
-            'text/plain': (content) => ({
+            'default': (content) => ({
                 extension: '.txt',
-                content: content,
-                contentType: 'text/plain'
-            }),
-            'text/html': (content) => ({
-                extension: '.html',
-                content: content,
-                contentType: 'text/html'
-            }),
-            'text/css': (content) => ({
-                extension: '.css',
-                content: content,
-                contentType: 'text/css'
-            }),
-            'text/javascript': (content) => ({
-                extension: '.js',
-                content: content,
-                contentType: 'text/javascript'
-            }),
-
-            // Default handler with MIME type detection
-            'default': (content, meta) => {
-                // Try to detect content type if provided
-                if (meta && meta.type) {
-                    const mimeHandler = contentHandlers.embedded[meta.type];
-                    if (mimeHandler) {
-                        return mimeHandler(content, meta);
-                    }
-
-                    // If no specific handler but we have a MIME type, use its standard extension
-                    const mimeToExt = {
-                        'image/': '.img',
-                        'text/': '.txt',
-                        'application/': '.bin',
-                        'audio/': '.audio',
-                        'video/': '.video'
-                    };
-
-                    for (const [mimePrefix, defaultExt] of Object.entries(mimeToExt)) {
-                        if (meta.type.startsWith(mimePrefix)) {
-                            return {
-                                extension: defaultExt,
-                                content: content,
-                                contentType: meta.type
-                            };
-                        }
-                    }
-                }
-
-                // Fallback to examining content
-                if (typeof content === 'string') {
-                    // Check if it looks like SVG
-                    if (content.trim().startsWith('<svg')) {
-                        return {
-                            extension: '.svg',
-                            content: content,
-                            contentType: 'image/svg+xml'
-                        };
-                    }
-                    // Check if it looks like HTML
-                    if (content.trim().startsWith('<!DOCTYPE html') || content.trim().startsWith('<html')) {
-                        return {
-                            extension: '.html',
-                            content: content,
-                            contentType: 'text/html'
-                        };
-                    }
-                }
-
-                // Ultimate fallback
-                return {
-                    extension: '.txt',
-                    content: typeof content === 'string' ? content : JSON.stringify(content),
-                    contentType: 'text/plain'
-                };
-            }
+                content: typeof content === 'string' ? content : JSON.stringify(content)
+            })
         },
 
         // File references
@@ -216,11 +153,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                             const folder = file.type.startsWith('image/') ? imagesFolder : attachmentsFolder;
                             folder.file(file.name, blob);
                             
-                            chrome.runtime.sendMessage({
-                                type: 'status',
-                                text: `Downloaded ${file.name}...`,
-                                state: 'progress'
-                            });
+                            sendStatusMessage(`Downloaded ${file.name}...`, 'progress');
 
                             return true;
                         } catch (error) {
@@ -246,6 +179,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                         const blob = await zip.generateAsync({type: 'blob'});
                         const url = URL.createObjectURL(blob);
                         
+                        // Add this back - send to background script for download
                         chrome.runtime.sendMessage({
                             type: 'download',
                             options: {
@@ -254,28 +188,16 @@ if (!window.location.hostname.includes('claude.ai')) {
                                 saveAs: true
                             }
                         });
-                        
-                        chrome.runtime.sendMessage({
-                            type: 'status',
-                            text: `Download complete! (${results.filter(Boolean).length} files included)`,
-                            state: 'success'
-                        });
+
+                        sendStatusMessage(`Download complete! (${results.filter(Boolean).length} files included)`, 'success');
                     })
                     .catch(error => {
                         console.error('Error in download process:', error);
-                        chrome.runtime.sendMessage({
-                            type: 'status',
-                            text: 'Error creating download package',
-                            state: 'error'
-                        });
+                        sendStatusMessage('Error creating download package', 'error');
                     });
             } else {
                 console.log('No messages found');
-                chrome.runtime.sendMessage({
-                    type: 'status',
-                    text: 'No messages found',
-                    state: 'error'
-                });
+                sendStatusMessage('No messages found', 'error');
             }
         } else if (event.data.type === 'DEBUG_DATA') {
             console.log('Debug data received');
@@ -286,6 +208,7 @@ if (!window.location.hostname.includes('claude.ai')) {
             const url = URL.createObjectURL(blob);
             
             // Download via background script
+            sendStatusMessage(`Downloading debug data...`, 'progress');
             chrome.runtime.sendMessage({
                 type: 'download',
                 options: {
@@ -317,159 +240,224 @@ if (!window.location.hostname.includes('claude.ai')) {
 <head>
     <meta charset="UTF-8">
     <style>
-        @page { 
-            margin: 15mm;
-            size: A4;
-        }
         body { 
-            font-family: Arial, sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             line-height: 1.6;
-            max-width: 210mm;  // A4 width
+            max-width: 900px;
             margin: 0 auto;
-            padding: 20mm;
-            background: white;
+            padding: 2rem;
+            background: #f8f9fa;
         }
         .message { 
-            margin: 1.5em 0; 
-            padding: 1.5em; 
-            border: 1px solid #ddd; 
+            margin: 1.5rem 0;
+            padding: 1.5rem;
             border-radius: 8px;
-            page-break-inside: avoid;
-            background-color: white;  // Ensure background is rendered
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .message-header {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #495057;
         }
         .human { 
-            background: #f5f5f5 !important; 
-            border-left: 4px solid #666;
+            border-left: 4px solid #6c757d;
+        }
+        .human .message-header {
+            color: #6c757d;
         }
         .assistant { 
-            background: #f0f7ff !important; 
-            border-left: 4px solid #0066cc;
+            border-left: 4px solid #0d6efd;
         }
-        img { 
-            max-width: 100%; 
-            height: auto;
-            margin: 1em 0;
+        .assistant .message-header {
+            color: #0d6efd;
         }
-        pre { 
-            background: #f0f0f0 !important; 
-            padding: 1em; 
-            border-radius: 4px;
-            white-space: pre-wrap;
-            font-size: 12px;
-            line-height: 1.4;
-            overflow: hidden;  // Prevent scroll in PDF
+        .file-attachment {
+            display: flex;
+            align-items: center;
+            margin: 1rem 0;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #dee2e6;
         }
-        code {
-            font-family: 'Consolas', 'Monaco', monospace;
+        .file-icon {
+            margin-right: 0.75rem;
+            color: #6c757d;
         }
-        a {
-            color: #0066cc;
+        .file-info {
+            flex-grow: 1;
+        }
+        .file-name {
+            font-weight: 500;
+            color: #0d6efd;
             text-decoration: none;
         }
-        a:hover {
+        .file-name:hover {
             text-decoration: underline;
         }
-        @media print {
-            body { 
-                width: 210mm;
-                height: 297mm;
-                margin: 0;
-                padding: 15mm;
-            }
-            .message { 
-                break-inside: avoid;
-            }
+        .file-type {
+            font-size: 0.875rem;
+            color: #6c757d;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 4px;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
         }
     </style>
 </head>
 <body>
 <h1>Claude Chat Export</h1>`,
             end: () => `</body></html>`,
-            message: (msg, fileRefs) => {
+            message: (msg) => {
                 const content = msg.content.map(item => {
                     if (item.type === 'text') {
                         return `<p>${item.text.replace(/\n/g, '<br>')}</p>`;
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
-                        const filename = `files/artifacts/${item.input.title}${item.input.language ? '.' + item.input.language : ''}`;
+                        const timestamp = new Date(item.stop_timestamp).getTime();
+                        const filename = `files/artifacts/${item.input.id}_${timestamp}${item.input.language ? '.' + item.input.language : ''}`;
                         return `<pre><code class="language-${item.input.language || 'text'}">${item.input.content}</code></pre>
-                                <p><a href="${filename}">Download ${item.input.title}</a></p>`;
+                                <div class="file-attachment">
+                                    <div class="file-icon">📄</div>
+                                    <div class="file-info">
+                                        <a href="${filename}" class="file-name">${item.input.title}</a>
+                                        <div class="file-type">Artifact</div>
+                                    </div>
+                                </div>`;
                     }
                     return '';
                 }).join('\n');
 
-                // Handle attachments and files
-                const files = [
-                    ...(msg.attachments || []).map(att => 
-                        `<p>Attachment: <a href="files/attachments/${att.file_name}">${att.file_name}</a></p>`
-                    ),
-                    ...(msg.files || []).map(file => {
-                        if (file.file_kind === 'image') {
-                            return `<p><img src="files/images/${file.file_name}" alt="${file.file_name}"></p>`;
-                        }
-                        return `<p>File: <a href="files/other/${file.file_name}">${file.file_name}</a></p>`;
-                    })
-                ].join('\n');
+                // Track which files we've handled to avoid duplicates
+                const handledFiles = new Set();
 
-                return `<div class="message ${msg.sender}">
-                    ${content}
-                    ${files}
-                </div>`;
+                // Handle all types of files
+                const files = [
+                    // Handle attachments
+                    ...(msg.attachments || []).map(att => `
+                        <div class="file-attachment">
+                            <div class="file-icon">📎</div>
+                            <div class="file-info">
+                                <a href="files/attachments/${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${getExtFromName(att.file_name)}" class="file-name">${att.file_name}</a>
+                                <div class="file-type">Attachment</div>
+                            </div>
+                        </div>
+                    `),
+                    // Handle files and files_v2
+                    ...((msg.files || []).concat(msg.files_v2 || [])).map(file => {
+                        if (handledFiles.has(file.file_name)) return ''; // Skip if already handled
+                        handledFiles.add(file.file_name);
+
+                        if (file.file_kind === 'image') {
+                            return `
+                                <div class="file-attachment">
+                                    <a href="files/images/${file.file_name}" target="_blank">
+                                        <img src="files/images/${file.file_name}" alt="${file.file_name}">
+                                    </a>
+                                    <div class="file-info">
+                                        <span class="file-name">${file.file_name}</span>
+                                        <div class="file-type">Image - Click to open</div>
+                                    </div>
+                                </div>`;
+                        } else {
+                            const folder = file.file_kind === 'document' ? 'other' : 'other';
+                            return `
+                                <div class="file-attachment">
+                                    <div class="file-icon">📄</div>
+                                    <div class="file-info">
+                                        <a href="files/${folder}/${file.file_name}" class="file-name">${file.file_name}</a>
+                                        <div class="file-type">${file.file_kind || 'File'}</div>
+                                    </div>
+                                </div>`;
+                        }
+                    })
+                ].filter(Boolean).join('\n'); // Filter out empty strings
+
+                return `
+                    <div class="message ${msg.sender}">
+                        <div class="message-header">
+                            ${msg.sender === 'human' ? '👤 Human' : '🤖 Claude'}
+                        </div>
+                        ${content}
+                        ${files}
+                    </div>`;
             }
         },
         markdown: {
             start: () => `# Claude Chat Export\n\n`,
             end: () => ``,
-            message: (msg, fileRefs) => {
-                const sender = msg.sender === 'human' ? '**Human:**' : '**Assistant:**';
+            message: (msg) => {
+                const sender = msg.sender === 'human' ? '👤 **Human:**' : '🤖 **Claude:**';
                 
                 const content = msg.content.map(item => {
                     if (item.type === 'text') {
                         return item.text;
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
-                        const filename = `files/artifacts/${item.input.title}${item.input.language ? '.' + item.input.language : ''}`;
-                        return `\`\`\`${item.input.language || ''}\n${item.input.content}\n\`\`\`\n[Download ${item.input.title}](${filename})`;
+                        const timestamp = new Date(item.stop_timestamp).getTime();
+                        const filename = `files/artifacts/${item.input.id}_${timestamp}${item.input.language ? '.' + item.input.language : ''}`;
+                        return `\`\`\`${item.input.language || ''}\n${item.input.content}\n\`\`\`\n📄 [${item.input.title}](${filename})`;
                     }
                     return '';
                 }).join('\n\n');
 
-                // Handle attachments and files
+                // Track which files we've handled to avoid duplicates
+                const handledFiles = new Set();
+
+                // Handle all types of files
                 const files = [
+                    // Handle attachments
                     ...(msg.attachments || []).map(att => 
-                        `[Attachment: ${att.file_name}](files/attachments/${att.file_name})`
+                        `📎 [${att.file_name}](files/attachments/${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${getExtFromName(att.file_name)})`
                     ),
-                    ...(msg.files || []).map(file => {
+                    // Handle files and files_v2
+                    ...((msg.files || []).concat(msg.files_v2 || [])).map(file => {
+                        if (handledFiles.has(file.file_name)) return ''; // Skip if already handled
+                        handledFiles.add(file.file_name);
+
                         if (file.file_kind === 'image') {
                             return `![${file.file_name}](files/images/${file.file_name})`;
+                        } else {
+                            const folder = file.file_kind === 'document' ? 'other' : 'other';
+                            return `📄 [${file.file_name}](files/${folder}/${file.file_name})`;
                         }
-                        return `[File: ${file.file_name}](files/other/${file.file_name})`;
                     })
-                ].join('\n');
+                ].filter(Boolean).join('\n');
 
                 return `${sender}\n\n${content}\n\n${files}\n\n---\n`;
             }
         },
         pdf: {
             start: () => `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        @page { margin: 1cm; }
-        body { font-family: Arial, sans-serif; line-height: 1.6; }
-        .message { margin: 1em 0; padding: 1em; border: 1px solid #ddd; page-break-inside: avoid; }
-        .human { background: #f5f5f5; }
-        .assistant { background: #f0f7ff; }
-        img { max-width: 100%; }
-        pre { background: #f0f0f0; padding: 1em; overflow-x: auto; white-space: pre-wrap; }
-        @media print {
-            .message { break-inside: avoid; }
-            pre { white-space: pre-wrap; }
-        }
-    </style>
-</head>
-<body>`,
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page { margin: 1cm; }
+            body { font-family: Arial, sans-serif; line-height: 1.6; }
+            .message { margin: 1em 0; padding: 1em; border: 1px solid #ddd; page-break-inside: avoid; }
+            .human { background: #f5f5f5; }
+            .assistant { background: #f0f7ff; }
+            img { max-width: 100%; }
+            pre { background: #f0f0f0; padding: 1em; overflow-x: auto; white-space: pre-wrap; }
+            @media print {
+                .message { break-inside: avoid; }
+                pre { white-space: pre-wrap; }
+            }
+        </style>
+    </head>
+    <body>`,
             end: () => `</body></html>`,
             message: (msg) => {
                 const content = msg.content.map(item => {
@@ -525,18 +513,12 @@ if (!window.location.hostname.includes('claude.ai')) {
                 if (att.extracted_content) {
                     const handler = (att.file_type && contentHandlers.embedded[att.file_type]) || 
                                   contentHandlers.embedded.default;
-                    const result = handler(att.extracted_content, {
-                        type: att.file_type,  // Pass the type information
-                        language: att.language
-                    });
+                    const result = handler(att.extracted_content);
                     
                     const fileExt = getExtFromName(att.file_name) || result.extension;
                     const fileName = `${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${fileExt}`;
                     
-                    console.log('Saving attachment content:', {
-                        name: fileName,
-                        type: result.contentType || 'unknown'
-                    });
+                    console.log('Saving attachment content:', fileName);
                     zip.file(`files/attachments/${fileName}`, result.content);
                 }
                 
@@ -666,11 +648,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                     zip.file(`files/${folder}/${file.file_name}`, blob);
                     
                     console.log(`Saved file: ${file.file_name} to ${folder}/`);
-                    chrome.runtime.sendMessage({
-                        type: 'status',
-                        text: `Processed ${file.file_name}`,
-                        state: 'progress'
-                    });
+                    sendStatusMessage(`Processed ${file.file_name}`, 'progress');
                 } catch (error) {
                     console.error(`Failed to process ${file.file_name}:`, error);
                 }

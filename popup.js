@@ -1,45 +1,57 @@
 // popup.js
 document.addEventListener('DOMContentLoaded', function() {
-    // Check if we're on Claude
+    let port = chrome.runtime.connect({name: 'popup'});
+    
+    function handleError(error) {
+        const status = document.getElementById('status');
+        if (status) {
+            status.textContent = 'Connection error. Please refresh the page.';
+            status.className = 'error';
+        }
+        console.error('Connection error:', error);
+    }
+
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
         const isClaudePage = tabs[0].url.startsWith('https://claude.ai');
-        const content = document.querySelector('.content');
+        const downloadContainer = document.querySelector('.download-container');
+        const extractBtn = document.getElementById('extract');
+        const status = document.getElementById('status');
 
         if (isClaudePage) {
-            content.innerHTML = `
-                <button id="extract">
-                    <span>Download Chat</span>
-                </button>
-                <div id="status"></div>
-            `;
+            extractBtn.style.display = 'flex';
+            status.style.display = 'block';
+            status.textContent = 'Click button above to download chat history';
+            status.className = 'default'; // Add default class for initial state
             
-            const extractBtn = document.getElementById('extract');
             extractBtn.addEventListener('click', function() {
                 this.disabled = true;
-                // Add loading animation
-                this.innerHTML = `
-                    <span class="loading-icon"></span>
-                    <span>Processing...</span>
-                `;
+                this.classList.add('processing');
+                this.querySelector('.button-text').textContent = 'Processing...';
                 
                 const status = document.getElementById('status');
-                status.textContent = 'Starting extraction...';
                 status.className = 'progress';
+                status.textContent = 'Starting extraction...';
 
-                chrome.tabs.sendMessage(tabs[0].id, {type: 'extract'}, function(response) {
-                    if (chrome.runtime.lastError) {
-                        status.textContent = 'Error: ' + chrome.runtime.lastError.message;
-                        status.className = 'error';
-                        extractBtn.disabled = false;
-                        extractBtn.innerHTML = '<span>Download Chat</span>';
-                    }
-                });
+                try {
+                    chrome.tabs.sendMessage(tabs[0].id, {type: 'extract'}, function(response) {
+                        if (chrome.runtime.lastError) {
+                            handleError(chrome.runtime.lastError);
+                            extractBtn.disabled = false;
+                            extractBtn.classList.remove('processing');
+                            extractBtn.querySelector('.button-text').textContent = 'Download Chat';
+                        }
+                    });
+                } catch (error) {
+                    handleError(error);
+                    extractBtn.disabled = false;
+                    extractBtn.classList.remove('processing');
+                    extractBtn.querySelector('.button-text').textContent = 'Download Chat';
+                }
             });
         } else {
-            content.innerHTML = `
-                <div class="not-claude">
-                    <p>This extension only works on <a href="https://claude.ai" target="_blank">claude.ai</a></p>
-                    <p style="font-size: 12px; margin-top: 8px;">Visit Claude to start a conversation and download your chat history.</p>
+            downloadContainer.innerHTML = `
+                <div class="default-message">
+                    Please visit <a href="https://claude.ai" target="_blank">claude.ai</a> to download chat history
                 </div>
             `;
         }
@@ -57,7 +69,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (request.state === 'success' || request.state === 'error') {
                     extractBtn.disabled = false;
-                    extractBtn.innerHTML = '<span>Download Chat</span>';
+                    extractBtn.classList.remove('processing');
+                    extractBtn.querySelector('.button-text').textContent = 'Download Chat';
                 }
             }
         }

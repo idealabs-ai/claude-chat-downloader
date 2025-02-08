@@ -1,0 +1,19 @@
+# Privacy Policy
+
+## Data Collection
+This extension, Claude Chat Downloader, does not collect, store, or transmit any personal data to external servers. All data processed by the extension is handled locally on your device.
+
+## Data Usage
+The extension processes your chat history from Claude.ai solely for the purpose of downloading it to your local device. All operations are performed entirely within your browser, ensuring that no data is uploaded to or processed by any cloud services.
+
+## Data Sharing
+Since no data is collected or stored by the extension, there is no data sharing with third parties.
+
+## User Rights
+As no data is collected or stored, there are no user rights related to data access or deletion.
+
+## Local Operations
+All functionalities of this extension are executed locally within your browser. This means that your data remains private and secure, as it never leaves your device.
+
+## Contact
+If you have any questions or concerns about this privacy policy, please contact us at [your email].
