@@ -394,8 +394,10 @@ if (!window.location.hostname.includes('claude.ai')) {
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
                         const timestamp = new Date(item.stop_timestamp).getTime();
-                        const ext = getLanguageExtension(item.input.language, item.input.type);
-                        const filename = `files/artifacts/${item.input.id}_${timestamp}.${ext}`;
+                        // Get the stored artifact info to use correct extension
+                        const artifactInfo = artifactVersions.get(item.input.id);
+                        const filename = artifactInfo ? artifactInfo.path : 
+                            `files/artifacts/${item.input.id}_${timestamp}.${getLanguageExtension(item.input.language, item.input.type)}`;
                         const title = item.input.title || item.input.id;
                         
                         return `
@@ -475,8 +477,10 @@ if (!window.location.hostname.includes('claude.ai')) {
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
                         const timestamp = new Date(item.stop_timestamp).getTime();
-                        const ext = getLanguageExtension(item.input.language, item.input.type);
-                        const filename = `files/artifacts/${item.input.id}_${timestamp}.${ext}`;
+                        // Get the stored artifact info to use correct extension
+                        const artifactInfo = artifactVersions.get(item.input.id);
+                        const filename = artifactInfo ? artifactInfo.path : 
+                            `files/artifacts/${item.input.id}_${timestamp}.${getLanguageExtension(item.input.language, item.input.type)}`;
                         const title = item.input.title || item.input.id;
                         return `
 📄 **${title}** ([Download](${filename}))
@@ -571,69 +575,6 @@ ${item.input.content}
     // Remove our custom mime implementation
     // The mime object will be available globally from the CDN
 
-    function getFileExtension(content, language, inputExt) {
-        // First priority: use input extension if provided
-        if (inputExt && inputExt.startsWith('.')) {
-            return inputExt;
-        }
-
-        // Second priority: use language if provided
-        if (language) {
-            // Map common language names to correct extensions
-            const languageMap = {
-                'python': 'py',
-                'javascript': 'js',
-                'typescript': 'ts',
-                'java': 'java',
-                // Add more mappings as needed
-            };
-
-            const mappedExt = languageMap[language.toLowerCase()];
-            if (mappedExt) {
-                return '.' + mappedExt;
-            }
-
-            // Try mime type detection as fallback
-            const mimeType = mime.getType(language) || 
-                            mime.getType('file.' + language);
-            if (mimeType) {
-                const ext = mime.getExtension(mimeType);
-                if (ext) return '.' + ext;
-            }
-        }
-
-        // Third priority: try to detect from content
-        const contentStart = content.trim().substring(0, 1000);
-        
-        // Try to detect from content patterns
-        if (contentStart.includes('<?xml') || contentStart.includes('<svg')) {
-            return '.svg';
-        }
-        if (contentStart.includes('<!DOCTYPE html') || contentStart.includes('<html')) {
-            return '.html';
-        }
-        if (contentStart.match(/^[\s\n]*import\s+.*\s+from\s+/)) {
-            return '.js';  // or could be .ts
-        }
-        if (contentStart.match(/^[\s\n]*(def|class|import)\s+/)) {
-            return '.py';
-        }
-        if (contentStart.match(/^[\s\n]*(public|private|class|interface)\s+/)) {
-            return '.java';
-        }
-
-        // Try mime type detection
-        const detectedType = mime.getType(contentStart);
-        if (detectedType) {
-            const ext = mime.getExtension(detectedType);
-            if (ext) return '.' + ext;
-        }
-
-        // Default fallback
-        return '.txt';
-    }
-
-    // First, update the type-to-extension mapping
     function getLanguageExtension(language, type) {
         // First try to get extension from type if provided
         if (type) {
@@ -645,15 +586,13 @@ ${item.input.content}
         if (language) {
             const ext = mime.getExtension(mime.getType(language));
             if (ext) return ext;
+            
+            // If mime lookup failed, use language directly
+            return language.toLowerCase();
         }
 
-        // Finally try language directly
-        if (language) {
-            const ext = mime.getExtension(language);
-            if (ext) return ext;
-        }
-
-        return 'txt'; // Default fallback
+        // Default fallback if no type or language provided
+        return 'txt';
     }
 
     // Process message content
@@ -715,37 +654,21 @@ ${item.input.content}
                     stop_time: item.stop_timestamp
                 });
 
-                // For create command, we need type and content
-                if (item.input.command === 'create' && item.input.type && item.input.content) {
-                    const timestamp = new Date(item.stop_timestamp).getTime();
-                    const ext = getLanguageExtension(item.input.language, item.input.type);
-                    const fileName = `${item.input.id}_${timestamp}.${ext}`;
-                    const artifactPath = `files/artifacts/${fileName}`;
-
-                    console.log('Creating new artifact:', fileName);
-                    zip.file(artifactPath, item.input.content);
-                    artifactVersions.set(item.input.id, {
-                        path: artifactPath,
-                        timestamp,
-                        content: item.input.content,
-                        extension: ext,
-                        language: item.input.language
-                    });
-                }
-                // For update command, we need old_str and new_str
-                else if (item.input.command === 'update' && 
-                        item.input.old_str && 
-                        item.input.new_str) {
-                    
+                // If we have old_str and new_str, it's an update
+                if (item.input.old_str && item.input.new_str) {
                     const lastVersion = artifactVersions.get(item.input.id);
                     if (lastVersion) {
                         console.log('Updating artifact:', {
                             id: item.input.id,
-                            from: lastVersion.path
+                            from: lastVersion.path,
+                            originalLanguage: lastVersion.language,
+                            originalType: lastVersion.type
                         });
 
                         const timestamp = new Date(item.stop_timestamp).getTime();
-                        const fileName = `${item.input.id}_${timestamp}${lastVersion.extension}`;
+                        // Use the same language and type as the original file
+                        const ext = getLanguageExtension(lastVersion.language, lastVersion.type);
+                        const fileName = `${item.input.id}_${timestamp}.${ext}`;
                         const artifactPath = `files/artifacts/${fileName}`;
 
                         try {
@@ -756,8 +679,11 @@ ${item.input.content}
                             );
                             
                             console.log('Content updated:', {
-                                before: existingContent.substring(0, 100),
-                                after: updatedContent.substring(0, 100)
+                                fileName,
+                                language: lastVersion.language,
+                                type: lastVersion.type,
+                                extension: ext,
+                                content: updatedContent.substring(0, 100) + '...'
                             });
 
                             zip.file(artifactPath, updatedContent);
@@ -765,8 +691,9 @@ ${item.input.content}
                                 path: artifactPath,
                                 timestamp,
                                 content: updatedContent,
-                                extension: lastVersion.extension,
-                                language: lastVersion.language
+                                extension: ext,
+                                language: lastVersion.language,
+                                type: lastVersion.type
                             });
                         } catch (error) {
                             console.error('Failed to update artifact:', error);
@@ -774,6 +701,39 @@ ${item.input.content}
                     } else {
                         console.warn('No previous version found for update:', item.input.id);
                     }
+                }
+                // Otherwise, if we have content, treat it as a create/replace
+                else if (item.input.content) {
+                    const timestamp = new Date(item.stop_timestamp).getTime();
+                    const ext = getLanguageExtension(item.input.language, item.input.type);
+                    const fileName = `${item.input.id}_${timestamp}.${ext}`;
+                    const artifactPath = `files/artifacts/${fileName}`;
+
+                    console.log('Creating new artifact:', {
+                        fileName,
+                        language: item.input.language,
+                        type: item.input.type,
+                        extension: ext,
+                        content: item.input.content.substring(0, 100) + '...'
+                    });
+                    
+                    // Save the file and verify
+                    zip.file(artifactPath, item.input.content);
+                    const saved = zip.file(artifactPath);
+                    if (!saved) {
+                        console.error('Failed to save artifact:', artifactPath);
+                    } else {
+                        console.log('Successfully saved artifact:', artifactPath);
+                    }
+
+                    artifactVersions.set(item.input.id, {
+                        path: artifactPath,
+                        timestamp,
+                        content: item.input.content,
+                        extension: ext,
+                        language: item.input.language,
+                        type: item.input.type
+                    });
                 }
             }
         }
