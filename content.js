@@ -377,7 +377,10 @@ if (!window.location.hostname.includes('claude.ai')) {
     </style>
 </head>
 <body>
-<h1>Claude Chat Export</h1>`,
+<h1>Claude Chat Export</h1>
+<div class="notice">
+    Note: For file links to work, keep this HTML file in the same folder as the "files" directory from the ZIP.
+</div>`,
             end: () => `</body></html>`,
             message: (msg) => {
                 const content = msg.content.map(item => {
@@ -386,29 +389,59 @@ if (!window.location.hostname.includes('claude.ai')) {
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
                         const timestamp = new Date(item.stop_timestamp).getTime();
-                        const filename = `files/artifacts/${item.input.id}_${timestamp}${item.input.language ? '.' + item.input.language : ''}`;
-                        return `<pre><code class="language-${item.input.language || 'text'}">${escapeHtml(item.input?.content)}</code></pre>
-                                <div class="file-attachment">
-                                    <div class="file-icon">📄</div>
-                                    <div class="file-info">
-                                        <a href="${filename}" class="file-name">${escapeHtml(item.input?.title)}</a>
-                                        <div class="file-type">Artifact</div>
-                                    </div>
-                                </div>`;
+                        const ext = getLanguageExtension(item.input.language, item.input.type);
+                        const filename = `files/artifacts/${item.input.id}_${timestamp}.${ext}`;
+                        const title = item.input.title || item.input.id;
+                        
+                        return `
+                            <div class="file-attachment">
+                                <div class="file-icon">📄</div>
+                                <div class="file-info">
+                                    <a href="${filename}" class="file-name">${escapeHtml(title)}</a>
+                                    <div class="file-type">Artifact - ${item.input.language || 'text'}</div>
+                                </div>
+                            </div>
+                            <pre><code class="language-${item.input.language || 'text'}">${escapeHtml(item.input?.content)}</code></pre>`;
                     }
                     return '';
-                }).filter(Boolean).join('\n'); // Filter out empty strings
+                }).filter(Boolean).join('\n');
 
-                // Handle attachments and files
+                // Handle attachments and files with correct filenames
                 const files = [
-                    ...(msg.attachments || []).map(att => 
-                        `<p>Attachment: <a href="files/attachments/${escapeHtml(att.file_name)}">${escapeHtml(att.file_name)}</a></p>`
-                    ),
+                    ...(msg.attachments || []).map(att => {
+                        const fileExt = getExtFromName(att.file_name) || '.txt';
+                        const fileName = `${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${fileExt}`;
+                        return `
+                            <div class="file-attachment">
+                                <div class="file-icon">📎</div>
+                                <div class="file-info">
+                                    <a href="files/attachments/${fileName}" class="file-name">${escapeHtml(att.file_name)}</a>
+                                    <div class="file-type">Attachment</div>
+                                </div>
+                            </div>`;
+                    }),
                     ...(msg.files || []).map(file => {
                         if (file.file_kind === 'image') {
-                            return `<p><img src="files/images/${escapeHtml(file.file_name)}" alt="${escapeHtml(file.file_name)}"></p>`;
+                            const safePath = encodeURIComponent(file.file_name);
+                            return `
+                                <div class="file-attachment">
+                                    <a href="files/images/${safePath}" target="_blank">
+                                        <img src="files/images/${safePath}" alt="${escapeHtml(file.file_name)}">
+                                    </a>
+                                    <div class="file-info">
+                                        <a href="files/images/${safePath}" class="file-name">${escapeHtml(file.file_name)}</a>
+                                        <div class="file-type">Image</div>
+                                    </div>
+                                </div>`;
                         }
-                        return `<p>File: <a href="files/other/${escapeHtml(file.file_name)}">${escapeHtml(file.file_name)}</a></p>`;
+                        return `
+                            <div class="file-attachment">
+                                <div class="file-icon">📄</div>
+                                <div class="file-info">
+                                    <a href="files/other/${encodeURIComponent(file.file_name)}" class="file-name">${escapeHtml(file.file_name)}</a>
+                                    <div class="file-type">File</div>
+                                </div>
+                            </div>`;
                     })
                 ].filter(Boolean).join('\n');
 
@@ -422,7 +455,11 @@ if (!window.location.hostname.includes('claude.ai')) {
             }
         },
         markdown: {
-            start: () => `# Claude Chat Export\n\n`,
+            start: () => `# Claude Chat Export
+
+> Note: For file links to work, keep this markdown file in the same folder as the "files" directory from the ZIP.
+
+`,
             end: () => ``,
             message: (msg) => {
                 const sender = msg.sender === 'human' ? '👤 **Human:**' : '🤖 **Claude:**';
@@ -433,36 +470,39 @@ if (!window.location.hostname.includes('claude.ai')) {
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
                         const timestamp = new Date(item.stop_timestamp).getTime();
-                        const filename = `files/artifacts/${item.input.id}_${timestamp}${item.input.language ? '.' + item.input.language : ''}`;
-                        return `\`\`\`${item.input.language || ''}\n${item.input.content}\n\`\`\`\n📄 [${item.input.title}](${filename})`;
+                        const ext = getLanguageExtension(item.input.language, item.input.type);
+                        const filename = `files/artifacts/${item.input.id}_${timestamp}.${ext}`;
+                        const title = item.input.title || item.input.id;
+                        return `
+📄 **${title}** ([Download](${filename}))
+
+\`\`\`${item.input.language || ''}
+${item.input.content}
+\`\`\``;
                     }
                     return '';
-                }).join('\n\n');
+                }).filter(Boolean).join('\n\n');
 
-                // Track which files we've handled to avoid duplicates
-                const handledFiles = new Set();
-
-                // Handle all types of files
+                // Handle attachments and files
                 const files = [
-                    // Handle attachments
-                    ...(msg.attachments || []).map(att => 
-                        `📎 [${att.file_name}](files/attachments/${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${getExtFromName(att.file_name)})`
-                    ),
-                    // Handle files and files_v2
-                    ...((msg.files || []).concat(msg.files_v2 || [])).map(file => {
-                        if (handledFiles.has(file.file_name)) return ''; // Skip if already handled
-                        handledFiles.add(file.file_name);
-
+                    ...(msg.attachments || []).map(att => {
+                        const fileExt = getExtFromName(att.file_name) || '.txt';
+                        const fileName = `${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${fileExt}`;
+                        return `📎 **Attachment:** [${att.file_name}](./files/attachments/${fileName})`;
+                    }),
+                    ...(msg.files || []).map(file => {
                         if (file.file_kind === 'image') {
-                            return `![${file.file_name}](files/images/${file.file_name})`;
-                        } else {
-                            const folder = file.file_kind === 'document' ? 'other' : 'other';
-                            return `📄 [${file.file_name}](files/${folder}/${file.file_name})`;
-                        }
-                    })
-                ].filter(Boolean).join('\n');
+                            const safePath = encodeURIComponent(file.file_name);
+                            return `
+🖼️ **Image:** [${file.file_name}](./files/images/${safePath})
 
-                return `${sender}\n\n${content}\n\n${files}\n\n---\n`;
+![${file.file_name}](./files/images/${safePath})`;
+                        }
+                        return `📄 **File:** [${file.file_name}](./files/other/${encodeURIComponent(file.file_name)})`;
+                    })
+                ].filter(Boolean).join('\n\n');
+
+                return `${sender}\n\n${content}${files ? '\n\n' + files : ''}\n\n---\n\n`;
             }
         },
         pdf: {
@@ -534,12 +574,26 @@ if (!window.location.hostname.includes('claude.ai')) {
 
         // Second priority: use language if provided
         if (language) {
-            // Try to get mime type from language
+            // Map common language names to correct extensions
+            const languageMap = {
+                'python': 'py',
+                'javascript': 'js',
+                'typescript': 'ts',
+                'java': 'java',
+                // Add more mappings as needed
+            };
+
+            const mappedExt = languageMap[language.toLowerCase()];
+            if (mappedExt) {
+                return '.' + mappedExt;
+            }
+
+            // Try mime type detection as fallback
             const mimeType = mime.getType(language) || 
-                            mime.getType('file.' + language) ||  // Try with file extension
-                            mime.getType('example.' + language);  // Another attempt
+                            mime.getType('file.' + language);
             if (mimeType) {
-                return '.' + mime.getExtension(mimeType);
+                const ext = mime.getExtension(mimeType);
+                if (ext) return '.' + ext;
             }
         }
 
@@ -572,6 +626,29 @@ if (!window.location.hostname.includes('claude.ai')) {
 
         // Default fallback
         return '.txt';
+    }
+
+    // First, update the type-to-extension mapping
+    function getLanguageExtension(language, type) {
+        // First try to get extension from type if provided
+        if (type) {
+            const ext = mime.getExtension(type);
+            if (ext) return ext;
+        }
+
+        // Then try language as a mime type
+        if (language) {
+            const ext = mime.getExtension(mime.getType(language));
+            if (ext) return ext;
+        }
+
+        // Finally try language directly
+        if (language) {
+            const ext = mime.getExtension(language);
+            if (ext) return ext;
+        }
+
+        return 'txt'; // Default fallback
     }
 
     // Process message content
@@ -635,29 +712,18 @@ if (!window.location.hostname.includes('claude.ai')) {
 
                 // For create command, we need type and content
                 if (item.input.command === 'create' && item.input.type && item.input.content) {
-                    const handler = contentHandlers.embedded[item.input.type] || 
-                                   contentHandlers.embedded.default;
-                    const result = handler(item.input.content, {
-                        language: item.input.language
-                    });
-
                     const timestamp = new Date(item.stop_timestamp).getTime();
-                    // Use the new function to determine extension
-                    const fileExt = getFileExtension(
-                        item.input.content,
-                        item.input.language,
-                        item.input.extension // Add this field if available in input
-                    );
-                    const fileName = `${item.input.id}_${timestamp}${fileExt}`;
+                    const ext = getLanguageExtension(item.input.language, item.input.type);
+                    const fileName = `${item.input.id}_${timestamp}.${ext}`;
                     const artifactPath = `files/artifacts/${fileName}`;
 
                     console.log('Creating new artifact:', fileName);
-                    zip.file(artifactPath, result.content);
+                    zip.file(artifactPath, item.input.content);
                     artifactVersions.set(item.input.id, {
                         path: artifactPath,
                         timestamp,
-                        content: result.content,
-                        extension: fileExt,
+                        content: item.input.content,
+                        extension: ext,
                         language: item.input.language
                     });
                 }
