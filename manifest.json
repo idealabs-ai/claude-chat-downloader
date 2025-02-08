@@ -29,6 +29,7 @@
       "matches": ["https://claude.ai/*"],
       "js": [
         "libs/jszip.min.js",
+        "libs/mime-types.js",
         "content.js"
       ]
     }
@@ -37,7 +38,9 @@
     {
       "resources": [
         "injected.js",
-        "libs/jszip.min.js"
+        "libs/jszip.min.js",
+        "libs/mime-types.js",
+        "libs/mime-db.json"
       ],
       "matches": ["https://claude.ai/*"]
     }

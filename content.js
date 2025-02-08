@@ -1,4 +1,50 @@
 // content.js
+
+// Add this at the top of content.js
+const mimeTypes = {
+    // Web Technologies
+    'html': 'text/html',
+    'css': 'text/css',
+    'js': 'application/javascript',
+    'ts': 'application/typescript',
+    'jsx': 'text/jsx',
+    'tsx': 'text/tsx',
+    'svg': 'image/svg+xml',
+    
+    // Programming Languages
+    'py': 'text/x-python',
+    'dart': 'application/dart',
+    'java': 'text/x-java',
+    'go': 'text/x-go',
+    'rs': 'text/x-rust',
+    'rb': 'text/x-ruby',
+    'php': 'text/x-php',
+    
+    // Data/Config
+    'json': 'application/json',
+    'yaml': 'text/yaml',
+    'yml': 'text/yaml',
+    'xml': 'text/xml',
+    'md': 'text/markdown',
+    'txt': 'text/plain'
+};
+
+// Simple mime type helper
+const mime = {
+    getType: (path) => {
+        if (!path) return null;
+        const ext = path.toLowerCase().split('.').pop();
+        return mimeTypes[ext] || null;
+    },
+    getExtension: (type) => {
+        if (!type) return null;
+        for (const [ext, mimeType] of Object.entries(mimeTypes)) {
+            if (mimeType === type) return ext;
+        }
+        return null;
+    }
+};
+
 if (!window.location.hostname.includes('claude.ai')) {
     console.log('Claude Chat Extractor: This extension only works on claude.ai');
 } else {
@@ -179,17 +225,26 @@ if (!window.location.hostname.includes('claude.ai')) {
                         const blob = await zip.generateAsync({type: 'blob'});
                         const url = URL.createObjectURL(blob);
                         
-                        // Add this back - send to background script for download
-                        chrome.runtime.sendMessage({
-                            type: 'download',
-                            options: {
-                                url: url,
-                                filename: zipFileName,
-                                saveAs: true
-                            }
+                        // Send to background script for download and wait for response
+                        return new Promise((resolve, reject) => {
+                            chrome.runtime.sendMessage({
+                                type: 'download',
+                                options: {
+                                    url: url,
+                                    filename: zipFileName,
+                                    saveAs: true
+                                }
+                            }, (response) => {
+                                if (chrome.runtime.lastError) {
+                                    reject(chrome.runtime.lastError);
+                                } else {
+                                    resolve(response);
+                                }
+                            });
                         });
-
-                        sendStatusMessage(`Download complete! (${results.filter(Boolean).length} files included)`, 'success');
+                    })
+                    .then(() => {
+                        sendStatusMessage(`Download complete!`, 'success');
                     })
                     .catch(error => {
                         console.error('Error in download process:', error);
@@ -197,7 +252,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                     });
             } else {
                 console.log('No messages found');
-                sendStatusMessage('No messages found', 'error');
+                sendStatusMessage('No messages found. You should open an existing chat to download messages.', 'error');
             }
         } else if (event.data.type === 'DEBUG_DATA') {
             console.log('Debug data received');
@@ -226,9 +281,10 @@ if (!window.location.hostname.includes('claude.ai')) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'extract') {
             console.log('Starting extraction...');
-            injectFindMessages();
+            // Keep the message channel open
             sendResponse({status: 'started'});
-            return false; // Don't keep the message channel open
+            injectFindMessages();
+            return true; // This keeps the message port open
         }
     });
 
@@ -322,76 +378,43 @@ if (!window.location.hostname.includes('claude.ai')) {
             message: (msg) => {
                 const content = msg.content.map(item => {
                     if (item.type === 'text') {
-                        return `<p>${item.text.replace(/\n/g, '<br>')}</p>`;
+                        return `<p>${escapeHtml(item.text).replace(/\n/g, '<br>')}</p>`;
                     }
                     if (item.type === 'tool_use' && item.name === 'artifacts') {
                         const timestamp = new Date(item.stop_timestamp).getTime();
                         const filename = `files/artifacts/${item.input.id}_${timestamp}${item.input.language ? '.' + item.input.language : ''}`;
-                        return `<pre><code class="language-${item.input.language || 'text'}">${item.input.content}</code></pre>
+                        return `<pre><code class="language-${item.input.language || 'text'}">${escapeHtml(item.input?.content)}</code></pre>
                                 <div class="file-attachment">
                                     <div class="file-icon">📄</div>
                                     <div class="file-info">
-                                        <a href="${filename}" class="file-name">${item.input.title}</a>
+                                        <a href="${filename}" class="file-name">${escapeHtml(item.input?.title)}</a>
                                         <div class="file-type">Artifact</div>
                                     </div>
                                 </div>`;
                     }
                     return '';
-                }).join('\n');
+                }).filter(Boolean).join('\n'); // Filter out empty strings
 
-                // Track which files we've handled to avoid duplicates
-                const handledFiles = new Set();
-
-                // Handle all types of files
+                // Handle attachments and files
                 const files = [
-                    // Handle attachments
-                    ...(msg.attachments || []).map(att => `
-                        <div class="file-attachment">
-                            <div class="file-icon">📎</div>
-                            <div class="file-info">
-                                <a href="files/attachments/${att.file_name.replace(/\.[^/.]+$/, '')}_${att.id}${getExtFromName(att.file_name)}" class="file-name">${att.file_name}</a>
-                                <div class="file-type">Attachment</div>
-                            </div>
-                        </div>
-                    `),
-                    // Handle files and files_v2
-                    ...((msg.files || []).concat(msg.files_v2 || [])).map(file => {
-                        if (handledFiles.has(file.file_name)) return ''; // Skip if already handled
-                        handledFiles.add(file.file_name);
-
+                    ...(msg.attachments || []).map(att => 
+                        `<p>Attachment: <a href="files/attachments/${escapeHtml(att.file_name)}">${escapeHtml(att.file_name)}</a></p>`
+                    ),
+                    ...(msg.files || []).map(file => {
                         if (file.file_kind === 'image') {
-                            return `
-                                <div class="file-attachment">
-                                    <a href="files/images/${file.file_name}" target="_blank">
-                                        <img src="files/images/${file.file_name}" alt="${file.file_name}">
-                                    </a>
-                                    <div class="file-info">
-                                        <span class="file-name">${file.file_name}</span>
-                                        <div class="file-type">Image - Click to open</div>
-                                    </div>
-                                </div>`;
-                        } else {
-                            const folder = file.file_kind === 'document' ? 'other' : 'other';
-                            return `
-                                <div class="file-attachment">
-                                    <div class="file-icon">📄</div>
-                                    <div class="file-info">
-                                        <a href="files/${folder}/${file.file_name}" class="file-name">${file.file_name}</a>
-                                        <div class="file-type">${file.file_kind || 'File'}</div>
-                                    </div>
-                                </div>`;
+                            return `<p><img src="files/images/${escapeHtml(file.file_name)}" alt="${escapeHtml(file.file_name)}"></p>`;
                         }
+                        return `<p>File: <a href="files/other/${escapeHtml(file.file_name)}">${escapeHtml(file.file_name)}</a></p>`;
                     })
-                ].filter(Boolean).join('\n'); // Filter out empty strings
+                ].filter(Boolean).join('\n');
 
-                return `
-                    <div class="message ${msg.sender}">
-                        <div class="message-header">
-                            ${msg.sender === 'human' ? '👤 Human' : '🤖 Claude'}
-                        </div>
-                        ${content}
-                        ${files}
-                    </div>`;
+                return `<div class="message ${msg.sender}">
+                    <div class="message-header">
+                        ${msg.sender === 'human' ? '👤 Human' : '🤖 Claude'}
+                    </div>
+                    ${content}
+                    ${files}
+                </div>`;
             }
         },
         markdown: {
@@ -496,6 +519,57 @@ if (!window.location.hostname.includes('claude.ai')) {
     // At the top level, add a state object to track artifacts
     let artifactVersions = new Map();
 
+    // Remove our custom mime implementation
+    // The mime object will be available globally from the CDN
+
+    function getFileExtension(content, language, inputExt) {
+        // First priority: use input extension if provided
+        if (inputExt && inputExt.startsWith('.')) {
+            return inputExt;
+        }
+
+        // Second priority: use language if provided
+        if (language) {
+            // Try to get mime type from language
+            const mimeType = mime.getType(language) || 
+                            mime.getType('file.' + language) ||  // Try with file extension
+                            mime.getType('example.' + language);  // Another attempt
+            if (mimeType) {
+                return '.' + mime.getExtension(mimeType);
+            }
+        }
+
+        // Third priority: try to detect from content
+        const contentStart = content.trim().substring(0, 1000);
+        
+        // Try to detect from content patterns
+        if (contentStart.includes('<?xml') || contentStart.includes('<svg')) {
+            return '.svg';
+        }
+        if (contentStart.includes('<!DOCTYPE html') || contentStart.includes('<html')) {
+            return '.html';
+        }
+        if (contentStart.match(/^[\s\n]*import\s+.*\s+from\s+/)) {
+            return '.js';  // or could be .ts
+        }
+        if (contentStart.match(/^[\s\n]*(def|class|import)\s+/)) {
+            return '.py';
+        }
+        if (contentStart.match(/^[\s\n]*(public|private|class|interface)\s+/)) {
+            return '.java';
+        }
+
+        // Try mime type detection
+        const detectedType = mime.getType(contentStart);
+        if (detectedType) {
+            const ext = mime.getExtension(detectedType);
+            if (ext) return '.' + ext;
+        }
+
+        // Default fallback
+        return '.txt';
+    }
+
     // Process message content
     async function processMessageContent(msg, zip, messages) {
         // Handle embedded content (attachments)
@@ -558,13 +632,19 @@ if (!window.location.hostname.includes('claude.ai')) {
                 // For create command, we need type and content
                 if (item.input.command === 'create' && item.input.type && item.input.content) {
                     const handler = contentHandlers.embedded[item.input.type] || 
-                                  contentHandlers.embedded.default;
+                                   contentHandlers.embedded.default;
                     const result = handler(item.input.content, {
                         language: item.input.language
                     });
 
                     const timestamp = new Date(item.stop_timestamp).getTime();
-                    const fileName = `${item.input.id}_${timestamp}${result.extension}`;
+                    // Use the new function to determine extension
+                    const fileExt = getFileExtension(
+                        item.input.content,
+                        item.input.language,
+                        item.input.extension // Add this field if available in input
+                    );
+                    const fileName = `${item.input.id}_${timestamp}${fileExt}`;
                     const artifactPath = `files/artifacts/${fileName}`;
 
                     console.log('Creating new artifact:', fileName);
@@ -573,7 +653,7 @@ if (!window.location.hostname.includes('claude.ai')) {
                         path: artifactPath,
                         timestamp,
                         content: result.content,
-                        extension: result.extension,
+                        extension: fileExt,
                         language: item.input.language
                     });
                 }
@@ -661,6 +741,17 @@ if (!window.location.hostname.includes('claude.ai')) {
     // Add helper function at the top
     function escapeRegExp(string) {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+    }
+
+    // Update the escapeHtml function to handle undefined/null values
+    function escapeHtml(unsafe) {
+        if (!unsafe) return ''; // Return empty string for null/undefined
+        return String(unsafe)   // Convert to string in case it's a number or other type
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     console.log('Chat extractor ready - click the extension icon to start extraction');

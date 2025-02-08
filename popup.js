@@ -20,33 +20,25 @@ document.addEventListener('DOMContentLoaded', function() {
         if (isClaudePage) {
             extractBtn.style.display = 'flex';
             status.style.display = 'block';
-            status.textContent = 'Click button above to download chat history';
+            status.textContent = ' Ready to download your chat';
             status.className = 'default'; // Add default class for initial state
             
             extractBtn.addEventListener('click', function() {
-                this.disabled = true;
                 this.classList.add('processing');
-                this.querySelector('.button-text').textContent = 'Processing...';
                 
-                const status = document.getElementById('status');
-                status.className = 'progress';
-                status.textContent = 'Starting extraction...';
-
-                try {
-                    chrome.tabs.sendMessage(tabs[0].id, {type: 'extract'}, function(response) {
-                        if (chrome.runtime.lastError) {
-                            handleError(chrome.runtime.lastError);
-                            extractBtn.disabled = false;
-                            extractBtn.classList.remove('processing');
-                            extractBtn.querySelector('.button-text').textContent = 'Download Chat';
-                        }
-                    });
-                } catch (error) {
-                    handleError(error);
-                    extractBtn.disabled = false;
-                    extractBtn.classList.remove('processing');
-                    extractBtn.querySelector('.button-text').textContent = 'Download Chat';
-                }
+                // Query for the active tab
+                chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                    if (tabs[0]) {
+                        // Send message and wait for response
+                        chrome.tabs.sendMessage(tabs[0].id, {type: 'extract'}, function(response) {
+                            if (chrome.runtime.lastError) {
+                                console.error('Error:', chrome.runtime.lastError);
+                                return;
+                            }
+                            console.log('Extraction started:', response);
+                        });
+                    }
+                });
             });
         } else {
             downloadContainer.innerHTML = `
