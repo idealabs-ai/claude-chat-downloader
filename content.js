@@ -241,8 +241,6 @@ if (!window.location.hostname.includes('claude.ai')) {
                                 if (chrome.runtime.lastError) {
                                     reject(chrome.runtime.lastError);
                                 } else {
-                                    // Send downloaded status after user confirms save
-                                    sendStatusMessage('Download completed', 'downloaded');
                                     resolve(response);
                                     URL.revokeObjectURL(url);
                                 }
