@@ -228,7 +228,6 @@ if (!window.location.hostname.includes('claude.ai')) {
                         
                         // Send to background script for download and wait for response
                         return new Promise((resolve, reject) => {
-                            // Show success message BEFORE sending to background
                             sendStatusMessage(`Download ready! (${results.filter(Boolean).length} files included)`, 'success');
                             
                             chrome.runtime.sendMessage({
@@ -242,13 +241,13 @@ if (!window.location.hostname.includes('claude.ai')) {
                                 if (chrome.runtime.lastError) {
                                     reject(chrome.runtime.lastError);
                                 } else {
+                                    // Send downloaded status after user confirms save
+                                    sendStatusMessage('Download completed', 'downloaded');
                                     resolve(response);
+                                    URL.revokeObjectURL(url);
                                 }
                             });
                         });
-                    })
-                    .then(() => {
-                        console.log('Download completed successfully');
                     })
                     .catch(error => {
                         console.error('Error in download process:', error);
@@ -283,12 +282,20 @@ if (!window.location.hostname.includes('claude.ai')) {
 
     // Listen for extract command from popup
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        if (request.type === 'ping') {
+            sendResponse('pong');
+            return false;
+        }
         if (request.type === 'extract') {
             console.log('Starting extraction...');
-            // Keep the message channel open
             sendResponse({status: 'started'});
             injectFindMessages();
-            return true; // This keeps the message port open
+            return true;
+        }
+        if (request.type === 'download_started') {
+            // Only send downloaded status after user has chosen save location
+            sendStatusMessage('Download completed', 'downloaded');
+            return false;
         }
     });
 

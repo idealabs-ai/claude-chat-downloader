@@ -1,19 +1,36 @@
-// Keep service worker alive, but only after receiving first message
-let isInitialized = false;
+// Keep track of popup status
+let popupOpen = false;
 
+// Listen for popup connections
+chrome.runtime.onConnect.addListener(port => {
+    if (port.name === 'popup') {
+        popupOpen = true;
+        port.onDisconnect.addListener(() => {
+            popupOpen = false;
+        });
+    }
+});
+
+// Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!isInitialized) {
-        isInitialized = true;
-        // Only setup connection after first message
-        chrome.runtime.connect({name: 'keepAlive'});
-    }
-
     if (message.type === 'download') {
-        chrome.downloads.download(message.options);
+        // Handle download requests
+        chrome.downloads.download(message.options, (downloadId) => {
+            // Notify content script that download has started
+            chrome.tabs.sendMessage(sender.tab.id, {
+                type: 'download_started',
+                downloadId: downloadId
+            });
+            sendResponse({ success: true, downloadId });
+        });
+        return true; // Keep the message channel open for the response
     }
-    else if (message.type === 'status') {
-        // Forward status to popup
-        chrome.runtime.sendMessage(message);
+    
+    if (message.type === 'status' && !popupOpen) {
+        // If popup is closed, acknowledge message without forwarding
+        sendResponse({received: true});
+        return false;
     }
+    // Forward message to popup if it's open
     return true;
 }); 
